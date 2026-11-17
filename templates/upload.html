@@ -1,19 +1,29 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Upload Soal (JSON)</h2>
+<h2>Upload Soal</h2>
+
 <form method="post" enctype="multipart/form-data">
-  <input type="file" name="file" accept=".json" required>
+  <h3>Cara 1: Paste jawaban dari AI</h3>
+  <p><small>Paste semua yang dikasih AI. Kalimat pembuka AI atau tanda ```json dibuang otomatis.</small></p>
+  <textarea name="pasted" style="height:220px" placeholder="Paste kode JSON dari AI di sini...">{{ pasted or '' }}</textarea>
+
+  <h3>Cara 2: Upload file .json</h3>
+  <input type="file" name="file" accept=".json">
+
   <label><input type="checkbox" name="is_public" value="1" checked> Bisa dipakai user lain</label><br><br>
   <button>Upload</button>
+  <span id="errtools" style="display:none">
+    <button type="button" id="copyerr">Copy pesan error buat AI</button> <span id="errstatus"></span>
+  </span>
 </form>
 
-<h3>Belum punya file soal?</h3>
+<h3>Belum punya soal? Minta AI yang bikin</h3>
 <div class="card">
   <ol>
     <li>Isi jumlah soal, lalu klik <b>Copy Prompt + Template</b>.</li>
     <li>Buka AI favorit lu (ChatGPT, Claude, Gemini, dll), <b>paste</b> ke chat.</li>
     <li>Lampirkan atau tempel materi belajar lu di chat yang sama, lalu kirim.</li>
-    <li>Simpan jawaban AI jadi file <code>.json</code> (Notepad, Save As, nama bebas, akhiri <code>.json</code>), lalu upload di atas.</li>
+    <li>Copy jawaban AI, paste di kotak "Cara 1" di atas, lalu klik Upload.</li>
   </ol>
   <label>Jumlah soal</label>
   <input type="number" id="jumlah" value="20" min="1" max="100" style="width:80px;padding:6px">
@@ -21,14 +31,15 @@
   <span id="copystatus"></span>
   <p><small>Atau <a href="{{ url_for('static', filename='template/question_template.json') }}" download>download template saja</a>.</small></p>
 </div>
+<textarea id="manual" readonly style="display:none"></textarea>
 
 <script>
   var TEMPLATE_URL = "{{ url_for('static', filename='template/question_template.json') }}";
-  var statusEl = document.getElementById('copystatus');
 
   function buildPrompt(n, tpl) {
     return 'Tugas: buatkan ' + n + ' soal pilihan ganda dari materi belajar yang gw berikan (di chat ini atau file yang gw lampirkan).\n\n' +
       'Aturan:\n' +
+      '- Isi "exam.title" dengan judul ujian yang spesifik dan deskriptif (materi + jenis ujian). Jangan pakai judul contoh dari template.\n' +
       '- Sebagian besar soal type "single" (tepat 1 jawaban benar), beberapa soal type "multiple" (lebih dari 1 jawaban benar, di soal tulis "Pilih semua yang benar").\n' +
       '- Isi "topic" tiap soal dengan sub-materinya, dan "explanation" singkat.\n' +
       '- Kunci di "correct" harus ada di "options". Nomor soal urut dari 1.\n' +
@@ -46,25 +57,41 @@
     return ok;
   }
 
+  function copyText(text, onDone, onFail) {
+    var fail = function () { fallbackCopy(text) ? onDone() : onFail(text); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onDone, fail);
+    } else { fail(); }
+  }
+
+  var statusEl = document.getElementById('copystatus');
   document.getElementById('copybtn').addEventListener('click', function () {
     var n = parseInt(document.getElementById('jumlah').value, 10) || 20;
     statusEl.textContent = ' menyalin...';
     fetch(TEMPLATE_URL).then(function (r) { return r.text(); }).then(function (tpl) {
-      var text = buildPrompt(n, tpl);
-      var done = function () { statusEl.textContent = ' \u2714 Tersalin! Sekarang paste ke AI.'; };
-      var fail = function () {
-        if (fallbackCopy(text)) { done(); }
-        else {
+      copyText(buildPrompt(n, tpl),
+        function () { statusEl.textContent = ' \u2714 Tersalin! Sekarang paste ke AI.'; },
+        function (text) {
           statusEl.textContent = ' Gagal otomatis, teks di bawah silakan copy manual.';
           var box = document.getElementById('manual');
           box.value = text; box.style.display = 'block'; box.select();
-        }
-      };
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(done, fail);
-      } else { fail(); }
+        });
     }).catch(function () { statusEl.textContent = ' Gagal ambil template.'; });
   });
+
+  // tombol copy pesan error (muncul kalau ada error upload)
+  var errs = document.querySelectorAll('.flash.error');
+  if (errs.length) {
+    document.getElementById('errtools').style.display = 'inline';
+    document.getElementById('copyerr').addEventListener('click', function () {
+      var lines = Array.prototype.map.call(errs, function (e) { return '- ' + e.textContent.trim(); });
+      var text = 'JSON soal ujian yang kamu buat gagal diupload dengan error berikut:\n' + lines.join('\n') +
+        '\n\nPerbaiki dan kirim ulang JSON lengkap yang sudah benar (hanya JSON, tanpa teks lain).';
+      var st = document.getElementById('errstatus');
+      copyText(text,
+        function () { st.textContent = ' \u2714 Tersalin, paste ke chat AI tadi.'; },
+        function () { st.textContent = ' Gagal menyalin otomatis.'; });
+    });
+  }
 </script>
-<textarea id="manual" readonly style="display:none"></textarea>
 {% endblock %}

@@ -9,6 +9,18 @@ def _to_int(value, default, minimum, maximum):
     return max(minimum, min(maximum, n))
 
 
+def unique_title(title):
+    """Kalau judul sudah ada (tanpa peduli huruf besar-kecil) tambah indeks: 'Judul (2)'."""
+    base = title.strip()[:190]
+    existing = {t.lower() for (t,) in db.session.query(Exam.title).all()}
+    if base.lower() not in existing:
+        return base
+    n = 2
+    while f"{base} ({n})".lower() in existing:
+        n += 1
+    return f"{base} ({n})"
+
+
 def import_exam(data, owner_id, is_public=True):
     """Validasi JSON soal lalu simpan. Return (exam, errors)."""
     if not isinstance(data, dict):
@@ -75,7 +87,7 @@ def import_exam(data, owner_id, is_public=True):
         return None, errors
 
     exam = Exam(
-        title=str(info["title"]).strip()[:200],
+        title=unique_title(str(info["title"])),
         subject=str(info.get("subject", "")).strip()[:100],
         total_minutes=_to_int(info.get("total_minutes"), 60, 1, 600),
         seconds_per_question=_to_int(info.get("seconds_per_question"), 90, 10, 3600),

@@ -107,29 +107,63 @@ def index():
     return render_template("index.html", exams=exams, attempts=attempts)
 
 
+def parse_json_loose(raw):
+    """Ambil blok JSON dari teks (buang code fence / kata pembuka AI). Return (data, error)."""
+    raw = raw.replace("\ufeff", "")
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end <= start:
+        return None, "Nggak ketemu JSON di teks itu. Pastikan yang di-paste adalah jawaban AI yang berisi kode JSON ({ ... })."
+    try:
+        return json.loads(raw[start:end + 1]), None
+    except json.JSONDecodeError as e:
+        return None, (f"JSON rusak di baris {e.lineno}, kolom {e.colno}: {e.msg}. "
+                      "Kirim JSON ini ke AI dan minta diperbaiki.")
+
+
 @app.route("/upload", methods=["GET", "POST"])
 @login_required
 def upload():
-    if request.method == "POST":
-        f = request.files.get("file")
-        if not f or not f.filename.lower().endswith(".json"):
-            flash("Pilih file .json dulu.", "error")
-            return redirect(url_for("upload"))
+    if request.method == "GET":
+        return render_template("upload.html", pasted="")
+
+    pasted = request.form.get("pasted", "")
+    f = request.files.get("file")
+
+    def back(msg):
+        flash(msg, "error")
+        return render_template("upload.html", pasted=pasted)
+
+    if f and f.filename:  # file diprioritaskan kalau dua-duanya diisi
+        if not f.filename.lower().endswith(".json"):
+            return back("File harus berekstensi .json.")
         try:
-            data = json.loads(f.read().decode("utf-8-sig"))
-        except ValueError as e:
-            flash(f"File bukan JSON valid: {e}", "error")
-            return redirect(url_for("upload"))
-        exam, errors = import_exam(data, current_user.id, request.form.get("is_public") == "1")
-        if errors:
-            for e in errors[:20]:
-                flash(e, "error")
-            if len(errors) > 20:
-                flash(f"...dan {len(errors) - 20} error lain.", "error")
-            return redirect(url_for("upload"))
-        flash(f"Berhasil upload '{exam.title}' ({len(exam.questions)} soal).", "ok")
-        return redirect(url_for("index"))
-    return render_template("upload.html")
+            raw = f.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return back("File tidak bisa dibaca (bukan teks UTF-8).")
+    elif pasted.strip():
+        raw = pasted
+    else:
+        return back("Paste JSON dari AI atau pilih file .json dulu.")
+
+    data, err = parse_json_loose(raw)
+    if err:
+        return back(err)
+
+    wanted = ""
+    if isinstance(data.get("exam"), dict):
+        wanted = str(data["exam"].get("title", "")).strip()[:200]
+    exam, errors = import_exam(data, current_user.id, request.form.get("is_public") == "1")
+    if errors:
+        for e in errors[:20]:
+            flash(e, "error")
+        if len(errors) > 20:
+            flash(f"...dan {len(errors) - 20} error lain.", "error")
+        return render_template("upload.html", pasted=pasted)
+
+    if wanted and exam.title != wanted:
+        flash(f"Judul '{wanted}' sudah ada, jadi dinamai '{exam.title}'.", "ok")
+    flash(f"Berhasil upload '{exam.title}' ({len(exam.questions)} soal).", "ok")
+    return redirect(url_for("index"))
 
 
 @app.route("/exam/<int:eid>/delete", methods=["POST"])

@@ -6,15 +6,16 @@
   Total waktu: {{ duration }}
 </div>
 {% for a, q in rows %}
-<div class="card {{ 'ok' if a.is_correct else 'bad' }}">
+{% set answered = a.selected|length > 0 %}
+<div class="card {% if a.is_correct %}ok{% elif answered %}bad{% else %}skip{% endif %}">
   <b>{{ q.number }}.</b> {{ q.text }}
-  {% if not a.selected %}<br><i>(tidak dijawab)</i>{% endif %}
+  {% if not answered %}<br><i>(tidak dijawab)</i>{% endif %}
   <ul>
   {% for key, val in q.options|dictsort %}
-    <li>{{ key }}. {{ val }}{% if key in q.correct %} &#10004;{% endif %}{% if key in a.selected %} &larr; jawaban lu{% endif %}</li>
+    <li>{{ key }}. {{ val }}{% if answered and key in q.correct %} &#10004;{% endif %}{% if key in a.selected %} &larr; jawaban lu{% endif %}</li>
   {% endfor %}
   </ul>
-  {% if q.explanation %}<i>{{ q.explanation }}</i>{% endif %}
+  {% if answered and q.explanation %}<i>{{ q.explanation }}</i>{% endif %}
 </div>
 {% endfor %}
 <a href="{{ url_for('index') }}">&laquo; Kembali</a>
