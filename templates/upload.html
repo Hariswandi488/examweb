@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Upload Soal (JSON)</h2>
+<form method="post" enctype="multipart/form-data">
+  <input type="file" name="file" accept=".json" required>
+  <label><input type="checkbox" name="is_public" value="1" checked> Bisa dipakai user lain</label><br><br>
+  <button>Upload</button>
+</form>
+
+<h3>Belum punya file soal?</h3>
+<div class="card">
+  <ol>
+    <li>Isi jumlah soal, lalu klik <b>Copy Prompt + Template</b>.</li>
+    <li>Buka AI favorit lu (ChatGPT, Claude, Gemini, dll), <b>paste</b> ke chat.</li>
+    <li>Lampirkan atau tempel materi belajar lu di chat yang sama, lalu kirim.</li>
+    <li>Simpan jawaban AI jadi file <code>.json</code> (Notepad, Save As, nama bebas, akhiri <code>.json</code>), lalu upload di atas.</li>
+  </ol>
+  <label>Jumlah soal</label>
+  <input type="number" id="jumlah" value="20" min="1" max="100" style="width:80px;padding:6px">
+  <button type="button" id="copybtn">Copy Prompt + Template</button>
+  <span id="copystatus"></span>
+  <p><small>Atau <a href="{{ url_for('static', filename='template/question_template.json') }}" download>download template saja</a>.</small></p>
+</div>
+
+<script>
+  var TEMPLATE_URL = "{{ url_for('static', filename='template/question_template.json') }}";
+  var statusEl = document.getElementById('copystatus');
+
+  function buildPrompt(n, tpl) {
+    return 'Tugas: buatkan ' + n + ' soal pilihan ganda dari materi belajar yang gw berikan (di chat ini atau file yang gw lampirkan).\n\n' +
+      'Aturan:\n' +
+      '- Sebagian besar soal type "single" (tepat 1 jawaban benar), beberapa soal type "multiple" (lebih dari 1 jawaban benar, di soal tulis "Pilih semua yang benar").\n' +
+      '- Isi "topic" tiap soal dengan sub-materinya, dan "explanation" singkat.\n' +
+      '- Kunci di "correct" harus ada di "options". Nomor soal urut dari 1.\n' +
+      '- Output HANYA JSON valid mengikuti struktur template di bawah, tanpa teks lain dan tanpa code fence markdown.\n\n' +
+      'TEMPLATE JSON:\n' + tpl;
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  document.getElementById('copybtn').addEventListener('click', function () {
+    var n = parseInt(document.getElementById('jumlah').value, 10) || 20;
+    statusEl.textContent = ' menyalin...';
+    fetch(TEMPLATE_URL).then(function (r) { return r.text(); }).then(function (tpl) {
+      var text = buildPrompt(n, tpl);
+      var done = function () { statusEl.textContent = ' \u2714 Tersalin! Sekarang paste ke AI.'; };
+      var fail = function () {
+        if (fallbackCopy(text)) { done(); }
+        else {
+          statusEl.textContent = ' Gagal otomatis, teks di bawah silakan copy manual.';
+          var box = document.getElementById('manual');
+          box.value = text; box.style.display = 'block'; box.select();
+        }
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, fail);
+      } else { fail(); }
+    }).catch(function () { statusEl.textContent = ' Gagal ambil template.'; });
+  });
+</script>
+<textarea id="manual" readonly style="display:none"></textarea>
+{% endblock %}

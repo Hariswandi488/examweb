@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Hasil: {{ attempt.exam.title }}</h2>
+<div class="card">
+  Skor: <b>{{ '%.1f'|format(attempt.score) }}</b> ({{ correct }}/{{ total }} benar)<br>
+  Total waktu: {{ duration }}
+</div>
+{% for a, q in rows %}
+<div class="card {{ 'ok' if a.is_correct else 'bad' }}">
+  <b>{{ q.number }}.</b> {{ q.text }}
+  {% if not a.selected %}<br><i>(tidak dijawab)</i>{% endif %}
+  <ul>
+  {% for key, val in q.options|dictsort %}
+    <li>{{ key }}. {{ val }}{% if key in q.correct %} &#10004;{% endif %}{% if key in a.selected %} &larr; jawaban lu{% endif %}</li>
+  {% endfor %}
+  </ul>
+  {% if q.explanation %}<i>{{ q.explanation }}</i>{% endif %}
+</div>
+{% endfor %}
+<a href="{{ url_for('index') }}">&laquo; Kembali</a>
+{% endblock %}

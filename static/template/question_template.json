@@ -1,0 +1,37 @@
+{
+  "exam": {
+    "title": "Contoh Try Out Matematika",
+    "subject": "Matematika",
+    "total_minutes": 30,
+    "seconds_per_question": 90
+  },
+  "questions": [
+    {
+      "number": 1,
+      "type": "single",
+      "topic": "Limit fungsi aljabar",
+      "text": "Nilai lim x->2 (x^2 - 4)/(x - 2) adalah ...",
+      "options": {"A": "0", "B": "2", "C": "4", "D": "8"},
+      "correct": ["C"],
+      "explanation": "Faktorkan (x-2)(x+2), sisa x+2 = 4."
+    },
+    {
+      "number": 2,
+      "type": "single",
+      "topic": "Turunan",
+      "text": "Turunan dari f(x) = 3x^2 adalah ...",
+      "options": {"A": "3x", "B": "6x", "C": "6x^2", "D": "x^3"},
+      "correct": ["B"],
+      "explanation": "Pangkat turun dikali koefisien: 2 x 3x = 6x."
+    },
+    {
+      "number": 3,
+      "type": "multiple",
+      "topic": "Bilangan prima",
+      "text": "Pilih SEMUA bilangan prima berikut.",
+      "options": {"A": "2", "B": "9", "C": "11", "D": "15"},
+      "correct": ["A", "C"],
+      "explanation": "9 = 3x3 dan 15 = 3x5 bukan prima."
+    }
+  ]
+}

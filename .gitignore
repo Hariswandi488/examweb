@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Database & data lokal (jangan di-push, tiap server punya DB sendiri)
+instance/
+*.db
+*.sqlite3
+
+# Rahasia
+.env
+*.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

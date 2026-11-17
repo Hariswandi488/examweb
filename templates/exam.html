@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ exam.title }}</h2>
+<p>Waktu tersisa: <b id="timer">--:--</b></p>
+<form method="post" id="examform">
+  <input type="hidden" name="q" value="{{ q }}">
+  <p>
+  {% for i in range(1, total + 1) %}
+    <button name="action" value="goto:{{ i }}" class="num{% if i in answered %} done{% endif %}{% if i == q %} current{% endif %}">{{ i }}</button>
+  {% endfor %}
+  </p>
+  <h3>Soal {{ q }} dari {{ total }}</h3>
+  {% if question.topic %}<small>Topik: {{ question.topic }}</small>{% endif %}
+  <p>{{ question.text }}</p>
+  {% if question.type == 'multiple' %}<p><i>Pilih semua jawaban yang benar.</i></p>{% endif %}
+  {% for key, val in options %}
+  <label class="opt">
+    <input type="{{ 'checkbox' if question.type == 'multiple' else 'radio' }}" name="choice" value="{{ key }}"{% if key in selected %} checked{% endif %}>
+    <b>{{ key }}.</b> {{ val }}
+  </label>
+  {% endfor %}
+  <p>
+    {% if q > 1 %}<button name="action" value="prev">&laquo; Sebelumnya</button>{% endif %}
+    {% if q < total %}<button name="action" value="next">Selanjutnya &raquo;</button>{% endif %}
+    <button name="action" value="finish" class="danger" onclick="return confirm('Selesaikan ujian sekarang?')">Selesai</button>
+  </p>
+</form>
+<script>
+  var end = Date.now() + {{ remaining }} * 1000;
+  var el = document.getElementById('timer'), form = document.getElementById('examform');
+  function tick() {
+    var left = Math.round((end - Date.now()) / 1000);
+    if (left <= 0) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'action'; h.value = 'finish';
+      form.appendChild(h); form.submit(); return;
+    }
+    el.textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+    setTimeout(tick, 500);
+  }
+  tick();
+</script>
+{% endblock %}
