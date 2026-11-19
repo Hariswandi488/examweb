@@ -49,6 +49,7 @@ class Attempt(db.Model):
     mode = db.Column(db.String(10), default="normal")  # normal / utbk
     q_index = db.Column(db.Integer, default=1)          # soal aktif (mode utbk)
     q_started_at = db.Column(db.DateTime, nullable=True)  # kapan soal aktif dibuka (mode utbk)
+    forfeited = db.Column(db.Boolean, default=False)       # gugur: keluar dari ujian UTBK
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     finished_at = db.Column(db.DateTime, nullable=True)
     score = db.Column(db.Float, nullable=True)

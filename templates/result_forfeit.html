@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Hasil: {{ attempt.exam.title }}</h2>
+<div class="card bad">
+  <b>GUGUR</b><br>
+  Kamu meninggalkan halaman ujian UTBK sebelum selesai, jadi ujian dinyatakan gagal. Skor: <b>0</b>.<br>
+  <small>Pembahasan dan export tidak tersedia untuk ujian yang gugur.</small>
+</div>
+<a href="{{ url_for('index') }}">&laquo; Kembali</a>
+{% endblock %}

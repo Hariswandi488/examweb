@@ -9,7 +9,7 @@
   {% if not e.is_public %}&middot; pribadi{% endif %}
   <form method="post" action="{{ url_for('begin', eid=e.id) }}" class="inline">
     <button name="mode" value="normal">Mulai Normal</button>
-    <button name="mode" value="utbk">Mulai UTBK ({{ e.seconds_per_question }} dtk/soal)</button>
+    <button name="mode" value="utbk" onclick="return confirm('Mode UTBK: keluar dari halaman ujian (ke home, tombol back, atau tab lain) = otomatis GUGUR dengan skor 0. Mulai sekarang?')">Mulai UTBK ({{ e.seconds_per_question }} dtk/soal)</button>
   </form>
   {% if e.owner_id == current_user.id or current_user.role == 'admin' %}
   <form method="post" action="{{ url_for('delete_exam', eid=e.id) }}" class="inline"
@@ -22,7 +22,8 @@
 {% for a in attempts %}
 <div class="card">
   {{ a.exam.title }} &middot; {{ a.started_at.strftime('%d-%m-%Y %H:%M') }} UTC &middot; {{ 'UTBK' if a.mode == 'utbk' else 'Normal' }} &middot;
-  {% if a.finished_at %}skor {{ a.score }} <a href="{{ url_for('result', aid=a.id) }}">lihat hasil</a>
+  {% if a.forfeited %}<b>GUGUR</b> (keluar dari ujian) <a href="{{ url_for('result', aid=a.id) }}">detail</a>
+  {% elif a.finished_at %}skor {{ a.score }} <a href="{{ url_for('result', aid=a.id) }}">lihat hasil</a>
   {% else %}<a href="{{ url_for('attempt_page', aid=a.id) }}">lanjutkan</a>{% endif %}
 </div>
 {% else %}<p>Belum ada riwayat.</p>{% endfor %}

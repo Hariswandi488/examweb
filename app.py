@@ -35,22 +35,28 @@ def load_user(user_id):
 
 @app.after_request
 def no_cache_attempt_pages(resp):
-    """Halaman ujian jangan disimpan browser, supaya tombol back nggak nampilin soal lama."""
-    if request.path.startswith("/attempt/"):
+    """Halaman jangan disimpan browser, supaya tombol back selalu minta ulang ke server."""
+    if request.endpoint != "static":
         resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
     return resp
 
 
+NEW_ATTEMPT_COLUMNS = {
+    "q_index": "INTEGER DEFAULT 1",
+    "q_started_at": "DATETIME",
+    "forfeited": "BOOLEAN DEFAULT 0",
+}
+
+
 def ensure_columns():
     """Migrasi ringan SQLite: tambah kolom baru kalau DB lama belum punya."""
     with db.engine.begin() as conn:
         cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(attempt)")}
-        if "q_index" not in cols:
-            conn.exec_driver_sql("ALTER TABLE attempt ADD COLUMN q_index INTEGER DEFAULT 1")
-        if "q_started_at" not in cols:
-            conn.exec_driver_sql("ALTER TABLE attempt ADD COLUMN q_started_at DATETIME")
+        for name, ddl in NEW_ATTEMPT_COLUMNS.items():
+            if name not in cols:
+                conn.exec_driver_sql(f"ALTER TABLE attempt ADD COLUMN {name} {ddl}")
 
 
 with app.app_context():
@@ -88,6 +94,37 @@ def finish_attempt(attempt):
     # kalau telat submit, waktu selesai dipatok ke deadline
     attempt.finished_at = min(datetime.utcnow(), deadline_of(attempt))
     db.session.commit()
+
+
+def forfeit_attempt(attempt):
+    """Gugur: skor 0, jawaban dianggap salah semua."""
+    if attempt.finished_at:
+        return
+    for ans in attempt.answers:
+        ans.is_correct = False
+    attempt.score = 0.0
+    attempt.forfeited = True
+    attempt.finished_at = min(datetime.utcnow(), deadline_of(attempt))
+    db.session.commit()
+
+
+@app.before_request
+def utbk_leave_guard():
+    """Keluar dari halaman ujian UTBK (home, tab lain, back, dll) = otomatis gugur."""
+    if not current_user.is_authenticated or request.endpoint in (None, "static"):
+        return
+    active = Attempt.query.filter_by(user_id=current_user.id, mode="utbk", finished_at=None).all()
+    left = False
+    for at in active:
+        if request.endpoint == "attempt_page" and (request.view_args or {}).get("aid") == at.id:
+            continue
+        if deadline_of(at) <= datetime.utcnow():
+            finish_attempt(at)       # waktu sudah habis semua: dinilai normal
+        else:
+            forfeit_attempt(at)
+            left = True
+    if left:
+        flash("Kamu keluar dari halaman ujian UTBK, jadi ujian dinyatakan GUGUR (skor 0).", "error")
 
 
 # ---------- auth ----------
@@ -373,6 +410,8 @@ def result(aid):
     attempt = own_attempt_or_404(aid)
     if not attempt.finished_at:
         return redirect(url_for("attempt_page", aid=aid))
+    if attempt.forfeited:
+        return render_template("result_forfeit.html", attempt=attempt)
     rows = result_rows(attempt)
     correct = sum(1 for a, _ in rows if a.is_correct)
     secs = int((attempt.finished_at - attempt.started_at).total_seconds())
@@ -389,6 +428,8 @@ def export(aid):
     attempt = own_attempt_or_404(aid)
     if not attempt.finished_at:
         return redirect(url_for("attempt_page", aid=aid))
+    if attempt.forfeited:
+        return redirect(url_for("result", aid=aid))
     kind = request.args.get("format", "txt")
     if kind not in ("txt", "md", "json"):
         abort(400)
