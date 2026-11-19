@@ -33,6 +33,16 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
+@app.after_request
+def no_cache_attempt_pages(resp):
+    """Halaman ujian jangan disimpan browser, supaya tombol back nggak nampilin soal lama."""
+    if request.path.startswith("/attempt/"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+
 def ensure_columns():
     """Migrasi ringan SQLite: tambah kolom baru kalau DB lama belum punya."""
     with db.engine.begin() as conn:

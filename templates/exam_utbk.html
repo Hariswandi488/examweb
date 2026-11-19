@@ -23,6 +23,11 @@
   </p>
 </form>
 <script>
+  // kalau halaman dipulihkan dari cache (tombol back/forward), paksa muat ulang dari server
+  window.addEventListener('pageshow', function (e) {
+    var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    if (e.persisted || (nav && nav.type === 'back_forward')) { location.reload(); }
+  });
   var end = Date.now() + {{ remaining }} * 1000, sent = false;
   var el = document.getElementById('timer'), form = document.getElementById('examform');
   form.addEventListener('submit', function () { sent = true; });
