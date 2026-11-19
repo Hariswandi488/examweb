@@ -64,6 +64,7 @@
 <div class="card {% if a.is_correct %}ok{% elif answered %}bad{% else %}skip{% endif %}">
   <b>{{ q.number }}.</b> {{ q.text }}
   {% if not answered %}<br><i>(tidak dijawab)</i>{% endif %}
+  {% if a.flagged %}<br><small>&#9873; ditandai ragu-ragu</small>{% endif %}
   {% if analysis.has_time %}<br><small>&#9201; {{ a.time_spent_ms|dur }} &middot; dikunjungi {{ a.visit_count }}x</small>{% endif %}
   <ul>
   {% for key, val in q.options|dictsort %}

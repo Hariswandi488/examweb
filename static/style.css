@@ -21,3 +21,19 @@ table{border-collapse:collapse;width:100%;background:#fff}
 th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;font-size:14px}
 th{background:#e8edf5}
 .st-benar{color:#2a2}.st-salah{color:#c22}.st-kosong{color:#888}
+.sticky{position:sticky;top:0;background:#f4f4f4;padding:6px 0;z-index:5;border-bottom:1px solid #ddd}
+.num.flag{background:#ffe08a}.num.done.flag{background:#ffe08a;border-bottom:3px solid #2a2}
+.flagbox{display:block;margin:8px 0}
+.bar{background:#ddd;height:10px;min-width:80px;border-radius:5px}
+.bar div{background:#2b4c7e;height:10px;border-radius:5px}
+.up{color:#2a2}.down{color:#c22}
+input[type=text],input[type=password],input[type=number],textarea{font-size:16px}
+@media (max-width:600px){
+  nav{flex-wrap:wrap;gap:8px 14px}
+  main{margin:8px auto}
+  h2{font-size:1.25em}
+  button{padding:10px 14px}
+  .opt{padding:14px}
+  .num{min-width:42px;min-height:42px}
+  th,td{padding:5px 6px;font-size:13px}
+}

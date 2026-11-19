@@ -1,15 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>{{ exam.title }}</h2>
-<p>Waktu tersisa: <b id="timer">--:--</b></p>
+<div class="sticky">Waktu tersisa: <b id="timer">--:--</b> <small id="saved"></small></div>
 <form method="post" id="examform">
   <input type="hidden" name="q" value="{{ q }}">
   <input type="hidden" name="elapsed_ms" id="elapsed" value="0">
   <p>
   {% for i in range(1, total + 1) %}
-    <button name="action" value="goto:{{ i }}" class="num{% if i in answered %} done{% endif %}{% if i == q %} current{% endif %}">{{ i }}</button>
+    <button name="action" value="goto:{{ i }}" id="nb{{ i }}" class="num{% if i in answered %} done{% endif %}{% if i in flagged %} flag{% endif %}{% if i == q %} current{% endif %}">{{ i }}</button>
   {% endfor %}
   </p>
+  <p><small>Hijau = sudah dijawab, kuning = ragu-ragu.</small></p>
   <h3>Soal {{ q }} dari {{ total }}</h3>
   {% if question.topic %}<small>Topik: {{ question.topic }}</small>{% endif %}
   <p>{{ question.text }}</p>
@@ -20,32 +21,73 @@
     <b>{{ key }}.</b> {{ val }}
   </label>
   {% endfor %}
+  <label class="flagbox"><input type="checkbox" name="flag" value="1" id="flagbox"{% if is_flagged %} checked{% endif %}> &#9873; Tandai ragu-ragu</label>
   <p>
     {% if q > 1 %}<button name="action" value="prev">&laquo; Sebelumnya</button>{% endif %}
     {% if q < total %}<button name="action" value="next">Selanjutnya &raquo;</button>{% endif %}
-    <button name="action" value="finish" class="danger" onclick="return confirm('Selesaikan ujian sekarang?')">Selesai</button>
+    <button name="action" value="finish" class="danger" onclick="return confirmFinish()">Selesai</button>
   </p>
 </form>
 <script>
+  var Q = {{ q }}, TOTAL = {{ total }}, ANSWERED = {{ answered|tojson }}, FLAGGED = {{ flagged|tojson }};
+  var AUTOSAVE_URL = "{{ url_for('autosave', aid=attempt.id) }}";
   var end = Date.now() + {{ remaining }} * 1000;
   var el = document.getElementById('timer'), form = document.getElementById('examform');
+  var flagbox = document.getElementById('flagbox'), savedEl = document.getElementById('saved');
 
-  // hitung waktu aktif di soal ini (berhenti saat tab disembunyikan)
+  function selectedValues() {
+    return Array.prototype.map.call(form.querySelectorAll('input[name=choice]:checked'), function (i) { return i.value; });
+  }
+
+  // waktu aktif di soal ini (berhenti saat tab disembunyikan); takeElapsed() mengambil lalu mereset
   var active = 0, last = document.hidden ? null : Date.now();
+  function takeElapsed() {
+    var now = Date.now(), t = active + (last !== null ? now - last : 0);
+    active = 0; if (last !== null) { last = now; }
+    return t;
+  }
+  function flush(beacon) {
+    var body = JSON.stringify({ q: Q, choice: selectedValues(), flagged: flagbox.checked, elapsed_ms: takeElapsed() });
+    if (beacon && navigator.sendBeacon) {
+      navigator.sendBeacon(AUTOSAVE_URL, new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    fetch(AUTOSAVE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
+      .then(function () { savedEl.textContent = '\u2714 tersimpan'; setTimeout(function () { savedEl.textContent = ''; }, 1500); })
+      .catch(function () {});
+  }
   document.addEventListener('visibilitychange', function () {
     var now = Date.now();
-    if (document.hidden) { if (last !== null) { active += now - last; last = null; } }
+    if (document.hidden) { if (last !== null) { active += now - last; last = null; } flush(true); }
     else { last = now; }
   });
-  function stamp() {
-    document.getElementById('elapsed').value = active + (last !== null ? Date.now() - last : 0);
+  window.addEventListener('pagehide', function () { flush(true); });
+
+  // simpan otomatis tiap pilihan/penanda berubah + update warna nomor soal
+  var saveT = null;
+  form.addEventListener('change', function () {
+    var b = document.getElementById('nb' + Q);
+    b.classList.toggle('done', selectedValues().length > 0);
+    b.classList.toggle('flag', flagbox.checked);
+    clearTimeout(saveT);
+    saveT = setTimeout(function () { flush(false); }, 400);
+  });
+
+  form.addEventListener('submit', function () { document.getElementById('elapsed').value = takeElapsed(); });
+
+  function confirmFinish() {
+    var ans = ANSWERED.filter(function (x) { return x !== Q; }); if (selectedValues().length) { ans.push(Q); }
+    var fl = FLAGGED.filter(function (x) { return x !== Q; }); if (flagbox.checked) { fl.push(Q); }
+    var msg = 'Selesaikan ujian sekarang?', un = TOTAL - ans.length;
+    if (un > 0) { msg += '\nBelum dijawab: ' + un + ' soal.'; }
+    if (fl.length) { msg += '\nDitandai ragu-ragu: ' + fl.length + ' soal.'; }
+    return confirm(msg);
   }
-  form.addEventListener('submit', stamp);
 
   function tick() {
     var left = Math.round((end - Date.now()) / 1000);
     if (left <= 0) {
-      stamp();
+      document.getElementById('elapsed').value = takeElapsed();
       var h = document.createElement('input');
       h.type = 'hidden'; h.name = 'action'; h.value = 'finish';
       form.appendChild(h); form.submit(); return;

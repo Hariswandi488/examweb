@@ -65,4 +65,5 @@ class Answer(db.Model):
     time_spent_ms = db.Column(db.Integer, default=0)  # diisi fase 2
     visit_count = db.Column(db.Integer, default=0)    # diisi fase 2
     is_correct = db.Column(db.Boolean, nullable=True)
+    flagged = db.Column(db.Boolean, default=False)  # penanda ragu-ragu (mode normal)
     __table_args__ = (db.UniqueConstraint("attempt_id", "question_id"),)

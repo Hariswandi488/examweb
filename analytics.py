@@ -1,4 +1,5 @@
-"""Analisis waktu & performa per percobaan (fase 2)."""
+"""Analisis waktu & performa per percobaan (fase 2) + tren antar percobaan (fase 4)."""
+from models import Attempt
 
 
 def fmt(ms):
@@ -61,3 +62,47 @@ def analyze(attempt, rows):
         has_time=has_time, total_active=fmt(total_ms), avg=fmt(total_ms / n if n else 0),
         items=items, top5=top5, stuck=stuck, topics=topic_rows, seconds_limit=exam.seconds_per_question,
     )
+
+
+def progress_for_user(user_id):
+    """Tren skor & akurasi topik antar percobaan, dikelompokkan per ujian."""
+    attempts = (Attempt.query.filter(Attempt.user_id == user_id, Attempt.finished_at.isnot(None))
+                .order_by(Attempt.started_at).all())
+    groups = {}
+    for at in attempts:
+        if at.forfeited:
+            continue
+        exam = at.exam
+        qmap = {q.id: q for q in exam.questions}
+        stats, total_ms = {}, 0
+        for ans in at.answers:
+            q = qmap.get(ans.question_id)
+            if q is None:
+                continue
+            d = stats.setdefault(q.topic or "Tanpa topik", [0, 0])
+            d[1] += 1
+            d[0] += 1 if ans.is_correct else 0
+            total_ms += ans.time_spent_ms or 0
+        n = len(at.answers)
+        g = groups.setdefault(exam.id, dict(title=exam.title, runs=[], last=at.started_at))
+        g["last"] = at.started_at
+        g["runs"].append(dict(
+            id=at.id, date=at.started_at.strftime("%d-%m-%Y %H:%M"),
+            mode="UTBK" if at.mode == "utbk" else "Normal", score=at.score or 0.0,
+            avg=fmt(total_ms / n) if total_ms and n else "-",
+            topics={t: round(c / k * 100) for t, (c, k) in stats.items()},
+        ))
+
+    out = []
+    for g in sorted(groups.values(), key=lambda x: x["last"], reverse=True):
+        runs = g["runs"]
+        for i, r in enumerate(runs):
+            r["delta"] = round(r["score"] - runs[i - 1]["score"], 1) if i else None
+        topics = []
+        if len(runs) >= 2:
+            for t, last_acc in runs[-1]["topics"].items():
+                first_acc = next((r["topics"][t] for r in runs if t in r["topics"]), last_acc)
+                topics.append(dict(topic=t, first=first_acc, last=last_acc, delta=last_acc - first_acc))
+            topics.sort(key=lambda x: (x["last"], x["delta"]))
+        out.append(dict(title=g["title"], runs=runs, best=max(r["score"] for r in runs), topics=topics))
+    return out

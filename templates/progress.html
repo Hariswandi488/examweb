@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Progres Belajar</h2>
+{% if not groups %}<p>Belum ada ujian yang selesai. Kerjakan satu ujian dulu, nanti tren skornya muncul di sini.</p>{% endif %}
+{% for g in groups %}
+<div class="card">
+  <b>{{ g.title }}</b><br>
+  {{ g.runs|length }} percobaan &middot; skor terbaik {{ '%.1f'|format(g.best) }}
+  <div class="tbl"><table>
+    <tr><th>#</th><th>Tanggal (UTC)</th><th>Mode</th><th>Skor</th><th></th><th>Rata-rata/soal</th><th>Perubahan</th></tr>
+    {% for r in g.runs %}
+    <tr>
+      <td><a href="{{ url_for('result', aid=r.id) }}">{{ loop.index }}</a></td>
+      <td>{{ r.date }}</td><td>{{ r.mode }}</td>
+      <td>{{ '%.1f'|format(r.score) }}</td>
+      <td><div class="bar"><div style="width:{{ r.score }}%"></div></div></td>
+      <td>{{ r.avg }}</td>
+      <td>{% if r.delta is none %}-{% else %}<span class="{{ 'up' if r.delta > 0 else ('down' if r.delta < 0 else '') }}">{{ '%+.1f'|format(r.delta) }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% if g.topics %}
+  <h4>Tren per topik (percobaan pertama &rarr; terakhir)</h4>
+  <div class="tbl"><table>
+    <tr><th>Topik</th><th>Pertama</th><th>Terakhir</th><th>Perubahan</th></tr>
+    {% for t in g.topics %}
+    <tr><td>{{ t.topic }}</td><td>{{ t.first }}%</td><td>{{ t.last }}%</td>
+        <td><span class="{{ 'up' if t.delta > 0 else ('down' if t.delta < 0 else '') }}">{{ '%+d'|format(t.delta) }}</span></td></tr>
+    {% endfor %}
+  </table></div>
+  <small>Diurutkan dari akurasi terakhir terendah: topik paling atas yang masih paling lemah.</small>
+  {% endif %}
+</div>
+{% endfor %}
+<p><small>Ujian yang gugur nggak dihitung di sini.</small></p>
+{% endblock %}

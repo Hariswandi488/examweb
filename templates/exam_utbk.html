@@ -2,7 +2,7 @@
 {% block nav %}<nav><b>ExamWeb</b> <span class="right">Mode ujian: jangan tinggalkan halaman ini</span></nav>{% endblock %}
 {% block content %}
 <h2>{{ exam.title }} <small>(UTBK)</small></h2>
-<p>Soal <b>{{ q }}</b> dari {{ total }} &middot; Sisa waktu soal ini: <b id="timer" style="font-size:1.4em">{{ remaining }}</b> dtk</p>
+<div class="sticky">Soal <b>{{ q }}</b> dari {{ total }} &middot; Sisa waktu soal ini: <b id="timer" style="font-size:1.4em">{{ remaining }}</b> dtk</div>
 <div id="warn" class="flash error" style="display:none">Tidak bisa kembali saat ujian UTBK berlangsung. Keluar dari halaman ini = GUGUR.</div>
 <p><small>Tidak bisa kembali ke soal sebelumnya. Waktu habis = otomatis lanjut. Keluar dari halaman ini = GUGUR.</small></p>
 <form method="post" id="examform">
@@ -47,6 +47,17 @@
   window.addEventListener('beforeunload', function (e) {
     if (!sent && !window.__reloading) { e.preventDefault(); e.returnValue = ''; }
   });
+  // simpan pilihan otomatis, jadi kalau halaman di-refresh pilihan tetap ada
+  var AUTOSAVE_URL = "{{ url_for('autosave', aid=aid) }}", saveT = null;
+  form.addEventListener('change', function () {
+    clearTimeout(saveT);
+    saveT = setTimeout(function () {
+      var chosen = Array.prototype.map.call(form.querySelectorAll('input[name=choice]:checked'), function (i) { return i.value; });
+      fetch(AUTOSAVE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ q: {{ q }}, choice: chosen }), keepalive: true }).catch(function () {});
+    }, 300);
+  });
+
   function tick() {
     var left = Math.ceil((end - Date.now()) / 1000);
     if (left <= 0) {

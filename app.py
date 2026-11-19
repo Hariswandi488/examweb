@@ -9,7 +9,7 @@ from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from analytics import analyze, fmt
+from analytics import analyze, fmt, progress_for_user
 from config import BASE_DIR, Config
 from exporter import build_data, to_json, to_md, to_txt
 from importer import import_exam
@@ -43,20 +43,26 @@ def no_cache_attempt_pages(resp):
     return resp
 
 
-NEW_ATTEMPT_COLUMNS = {
-    "q_index": "INTEGER DEFAULT 1",
-    "q_started_at": "DATETIME",
-    "forfeited": "BOOLEAN DEFAULT 0",
+NEW_COLUMNS = {
+    "attempt": {
+        "q_index": "INTEGER DEFAULT 1",
+        "q_started_at": "DATETIME",
+        "forfeited": "BOOLEAN DEFAULT 0",
+    },
+    "answer": {
+        "flagged": "BOOLEAN DEFAULT 0",
+    },
 }
 
 
 def ensure_columns():
     """Migrasi ringan SQLite: tambah kolom baru kalau DB lama belum punya."""
     with db.engine.begin() as conn:
-        cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(attempt)")}
-        for name, ddl in NEW_ATTEMPT_COLUMNS.items():
-            if name not in cols:
-                conn.exec_driver_sql(f"ALTER TABLE attempt ADD COLUMN {name} {ddl}")
+        for table, columns in NEW_COLUMNS.items():
+            have = {r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, ddl in columns.items():
+                if name not in have:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 with app.app_context():
@@ -116,7 +122,7 @@ def utbk_leave_guard():
     active = Attempt.query.filter_by(user_id=current_user.id, mode="utbk", finished_at=None).all()
     left = False
     for at in active:
-        if request.endpoint == "attempt_page" and (request.view_args or {}).get("aid") == at.id:
+        if request.endpoint in ("attempt_page", "autosave") and (request.view_args or {}).get("aid") == at.id:
             continue
         if deadline_of(at) <= datetime.utcnow():
             finish_attempt(at)       # waktu sudah habis semua: dinilai normal
@@ -335,8 +341,51 @@ def utbk_page(attempt):
     return render_template(
         "exam_utbk.html", exam=exam, question=question, q=q, total=n,
         options=sorted(question.options.items()), selected=answers[question.id].selected or [],
-        remaining=remaining,
+        remaining=remaining, aid=aid,
     )
+
+
+@app.route("/attempt/<int:aid>/autosave", methods=["POST"])
+@login_required
+def autosave(aid):
+    """Simpan jawaban sementara (dipanggil otomatis dari browser), supaya refresh nggak menghilangkan pilihan."""
+    attempt = own_attempt_or_404(aid)
+    if attempt.finished_at:
+        return "", 204
+    data = request.get_json(silent=True) or {}
+    exam = attempt.exam
+    questions = exam.questions
+    q = data.get("q")
+    if not isinstance(q, int) or isinstance(q, bool) or not 1 <= q <= len(questions):
+        return "", 204
+    question = questions[q - 1]
+    choice = data.get("choice", [])
+    if not isinstance(choice, list):
+        return "", 204
+    selected = [c for c in choice if isinstance(c, str) and c in question.options]
+    if question.type == "single":
+        selected = selected[:1]
+    selected = sorted(set(selected))
+    now = datetime.utcnow()
+    ans = Answer.query.filter_by(attempt_id=attempt.id, question_id=question.id).one()
+
+    if attempt.mode == "utbk":
+        expiry = attempt.q_started_at + timedelta(seconds=exam.seconds_per_question)
+        if q != attempt.q_index or now > expiry:
+            return "", 204
+        ans.selected = selected
+    else:
+        if (deadline_of(attempt) - now).total_seconds() < -GRACE_SECONDS:
+            return "", 204
+        elapsed = data.get("elapsed_ms", 0)
+        if not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool):
+            elapsed = 0
+        elapsed = max(0, min(int(elapsed), exam.total_minutes * 60_000))
+        ans.selected = selected
+        ans.flagged = bool(data.get("flagged"))
+        ans.time_spent_ms = (ans.time_spent_ms or 0) + elapsed
+    db.session.commit()
+    return "", 204
 
 
 @app.route("/attempt/<int:aid>", methods=["GET", "POST"])
@@ -366,6 +415,7 @@ def attempt_page(aid):
             selected = selected[:1]
         ans = answers[question.id]
         ans.selected = sorted(set(selected))
+        ans.flagged = request.form.get("flag") == "1"
         # waktu di soal ini (ms), dikirim browser; dibatasi biar nggak bisa ngawur
         elapsed = request.form.get("elapsed_ms", 0, type=int) or 0
         elapsed = max(0, min(elapsed, exam.total_minutes * 60_000))
@@ -391,12 +441,20 @@ def attempt_page(aid):
     q = max(1, min(total, request.args.get("q", 1, type=int)))
     question = questions[q - 1]
     answered = [i for i, qq in enumerate(questions, 1) if answers[qq.id].selected]
+    flagged = [i for i, qq in enumerate(questions, 1) if answers[qq.id].flagged]
     return render_template(
         "exam.html", exam=exam, question=question, q=q, total=total,
+        attempt=attempt, flagged=flagged, is_flagged=bool(answers[question.id].flagged),
         options=sorted(question.options.items()),
         selected=answers[question.id].selected or [],
         answered=answered, remaining=remaining,
     )
+
+
+@app.route("/progress")
+@login_required
+def progress():
+    return render_template("progress.html", groups=progress_for_user(current_user.id))
 
 
 def result_rows(attempt):
