@@ -3,13 +3,58 @@
 <h2>Hasil: {{ attempt.exam.title }}</h2>
 <div class="card">
   Skor: <b>{{ '%.1f'|format(attempt.score) }}</b> ({{ correct }}/{{ total }} benar)<br>
-  Total waktu: {{ duration }}
+  Durasi sesi: {{ duration }}
 </div>
+
+<h3>Analisis Waktu</h3>
+{% if analysis.has_time %}
+<div class="card">
+  Waktu aktif mengerjakan: <b>{{ analysis.total_active }}</b><br>
+  Rata-rata per soal: <b>{{ analysis.avg }}</b><br>
+  <small>Waktu aktif tidak menghitung saat tab browser disembunyikan.</small>
+</div>
+
+<h4>5 soal paling lama dikerjakan</h4>
+<div class="tbl"><table>
+  <tr><th>No</th><th>Topik</th><th>Waktu</th><th>Hasil</th><th>Dikunjungi</th></tr>
+  {% for i in analysis.top5 %}
+  <tr><td>{{ i.number }}</td><td>{{ i.topic }}</td><td>{{ i.time }}</td>
+      <td class="st-{{ i.status }}">{{ i.status }}</td><td>{{ i.visits }}x</td></tr>
+  {% endfor %}
+</table></div>
+
+<h4>Soal stuck</h4>
+<p><small>Stuck = waktu lebih dari 2x rata-rata (minimal 20 dtk) atau melewati batas {{ analysis.seconds_limit }} dtk per soal.</small></p>
+{% if analysis.stuck %}
+<ul>
+  {% for i in analysis.stuck %}
+  <li>No {{ i.number }} ({{ i.topic }}): {{ i.time }}, <span class="st-{{ i.status }}">{{ i.status }}</span>
+      &mdash; {{ i.reasons|join(', ') }}
+      {% if i.priority %}<b>&rarr; prioritas dipelajari ulang</b>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% else %}<p>Nggak ada soal yang stuck.</p>{% endif %}
+{% else %}
+<p><i>Data waktu per soal tidak tersedia untuk percobaan ini.</i></p>
+{% endif %}
+
+<h3>Per Topik</h3>
+<div class="tbl"><table>
+  <tr><th>Topik</th><th>Benar</th><th>Akurasi</th>{% if analysis.has_time %}<th>Rata-rata waktu</th>{% endif %}</tr>
+  {% for d in analysis.topics %}
+  <tr><td>{{ d.topic }}</td><td>{{ d.correct }}/{{ d.n }}</td><td>{{ d.acc }}%</td>
+      {% if analysis.has_time %}<td>{{ d.avg }}</td>{% endif %}</tr>
+  {% endfor %}
+</table></div>
+<p><small>Diurutkan dari akurasi terendah, jadi topik paling atas yang paling perlu dipelajari.</small></p>
+
+<h3>Pembahasan</h3>
 {% for a, q in rows %}
 {% set answered = a.selected|length > 0 %}
 <div class="card {% if a.is_correct %}ok{% elif answered %}bad{% else %}skip{% endif %}">
   <b>{{ q.number }}.</b> {{ q.text }}
   {% if not answered %}<br><i>(tidak dijawab)</i>{% endif %}
+  {% if analysis.has_time %}<br><small>&#9201; {{ a.time_spent_ms|dur }} &middot; dikunjungi {{ a.visit_count }}x</small>{% endif %}
   <ul>
   {% for key, val in q.options|dictsort %}
     <li>{{ key }}. {{ val }}{% if answered and key in q.correct %} &#10004;{% endif %}{% if key in a.selected %} &larr; jawaban lu{% endif %}</li>

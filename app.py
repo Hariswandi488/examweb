@@ -7,6 +7,7 @@ from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from analytics import analyze, fmt
 from config import BASE_DIR, Config
 from importer import import_exam
 from models import Answer, Attempt, Exam, Question, User, db
@@ -19,6 +20,9 @@ db.init_app(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Login dulu ya."
+app.jinja_env.filters["dur"] = fmt
+
+GRACE_SECONDS = 15  # toleransi submit terakhir saat waktu habis
 
 
 @login_manager.user_loader
@@ -209,7 +213,8 @@ def attempt_page(aid):
     questions = exam.questions
     total = len(questions)
     remaining = int((deadline_of(attempt) - datetime.utcnow()).total_seconds())
-    if remaining <= 0:
+    # waktu habis: GET langsung selesai; POST masih diterima sebentar (jawaban terakhir ikut tersimpan)
+    if remaining <= 0 and (request.method == "GET" or remaining < -GRACE_SECONDS):
         finish_attempt(attempt)
         return redirect(url_for("result", aid=aid))
     answers = {a.question_id: a for a in attempt.answers}
@@ -220,11 +225,17 @@ def attempt_page(aid):
         selected = [c for c in request.form.getlist("choice") if c in question.options]
         if question.type == "single":
             selected = selected[:1]
-        answers[question.id].selected = sorted(set(selected))
+        ans = answers[question.id]
+        ans.selected = sorted(set(selected))
+        # waktu di soal ini (ms), dikirim browser; dibatasi biar nggak bisa ngawur
+        elapsed = request.form.get("elapsed_ms", 0, type=int) or 0
+        elapsed = max(0, min(elapsed, exam.total_minutes * 60_000))
+        ans.time_spent_ms = (ans.time_spent_ms or 0) + elapsed
+        ans.visit_count = (ans.visit_count or 0) + 1
         db.session.commit()
 
         action = request.form.get("action", "")
-        if action == "finish":
+        if action == "finish" or remaining <= 0:
             finish_attempt(attempt)
             return redirect(url_for("result", aid=aid))
         if action == "next":
@@ -262,6 +273,7 @@ def result(aid):
     return render_template(
         "result.html", attempt=attempt, rows=rows, correct=correct,
         total=len(rows), duration=f"{secs // 60} menit {secs % 60} detik",
+        analysis=analyze(attempt, rows),
     )
 
 
