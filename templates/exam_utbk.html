@@ -3,6 +3,7 @@
 {% block content %}
 <h2>{{ exam.title }} <small>(UTBK)</small></h2>
 <p>Soal <b>{{ q }}</b> dari {{ total }} &middot; Sisa waktu soal ini: <b id="timer" style="font-size:1.4em">{{ remaining }}</b> dtk</p>
+<div id="warn" class="flash error" style="display:none">Tidak bisa kembali saat ujian UTBK berlangsung. Keluar dari halaman ini = GUGUR.</div>
 <p><small>Tidak bisa kembali ke soal sebelumnya. Waktu habis = otomatis lanjut. Keluar dari halaman ini = GUGUR.</small></p>
 <form method="post" id="examform">
   <input type="hidden" name="q" value="{{ q }}">
@@ -27,6 +28,21 @@
   var end = Date.now() + {{ remaining }} * 1000, sent = false;
   var el = document.getElementById('timer'), form = document.getElementById('examform');
   form.addEventListener('submit', function () { sent = true; });
+
+  // kunci tombol back: user ditahan di halaman ujian (back/swipe/Alt+Left cuma memunculkan peringatan)
+  function lockHistory() { history.pushState({ lock: 1 }, '', location.href); }
+  var warnEl = document.getElementById('warn'), warnTimer = null, gestured = false;
+  lockHistory();
+  // Chrome melewati entri history yang dibuat tanpa interaksi, jadi kunci lagi pada interaksi pertama
+  ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+    window.addEventListener(ev, function () { if (!gestured) { gestured = true; lockHistory(); } }, { passive: true });
+  });
+  window.addEventListener('popstate', function () {
+    lockHistory();
+    warnEl.style.display = 'block';
+    clearTimeout(warnTimer);
+    warnTimer = setTimeout(function () { warnEl.style.display = 'none'; }, 3000);
+  });
   // peringatan browser kalau user mau menutup/meninggalkan halaman ujian
   window.addEventListener('beforeunload', function (e) {
     if (!sent && !window.__reloading) { e.preventDefault(); e.returnValue = ''; }
