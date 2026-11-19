@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ exam.title }} <small>(UTBK)</small></h2>
+<p>Soal <b>{{ q }}</b> dari {{ total }} &middot; Sisa waktu soal ini: <b id="timer" style="font-size:1.4em">{{ remaining }}</b> dtk</p>
+<p><small>Tidak bisa kembali ke soal sebelumnya. Waktu habis = otomatis lanjut.</small></p>
+<form method="post" id="examform">
+  <input type="hidden" name="q" value="{{ q }}">
+  {% if question.topic %}<small>Topik: {{ question.topic }}</small>{% endif %}
+  <p>{{ question.text }}</p>
+  {% if question.type == 'multiple' %}<p><i>Pilih semua jawaban yang benar.</i></p>{% endif %}
+  {% for key, val in options %}
+  <label class="opt">
+    <input type="{{ 'checkbox' if question.type == 'multiple' else 'radio' }}" name="choice" value="{{ key }}"{% if key in selected %} checked{% endif %}>
+    <b>{{ key }}.</b> {{ val }}
+  </label>
+  {% endfor %}
+  <p>
+    {% if q < total %}
+      <button name="action" value="next">Selanjutnya &raquo;</button>
+    {% else %}
+      <button name="action" value="finish" class="danger" onclick="return confirm('Selesaikan ujian sekarang?')">Selesai</button>
+    {% endif %}
+  </p>
+</form>
+<script>
+  var end = Date.now() + {{ remaining }} * 1000, sent = false;
+  var el = document.getElementById('timer'), form = document.getElementById('examform');
+  form.addEventListener('submit', function () { sent = true; });
+  function tick() {
+    var left = Math.ceil((end - Date.now()) / 1000);
+    if (left <= 0) {
+      if (!sent) { sent = true; form.submit(); }
+      return;
+    }
+    el.textContent = left;
+    if (left <= 10) { el.style.color = '#c22'; }
+    setTimeout(tick, 250);
+  }
+  tick();
+</script>
+{% endblock %}

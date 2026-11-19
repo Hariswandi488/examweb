@@ -31,7 +31,10 @@ def analyze(attempt, rows):
         if has_time:
             if t >= 20000 and t > 2 * avg_visited:
                 reasons.append("lebih dari 2x rata-rata")
-            if t > limit_ms:
+            if attempt.mode == "utbk":
+                if t >= limit_ms - 1000:
+                    reasons.append("waktu soal habis")
+            elif t > limit_ms:
                 reasons.append(f"melewati {exam.seconds_per_question} dtk")
         items.append(dict(
             number=q.number, topic=q.topic or "Tanpa topik", ms=t, time=fmt(t),
@@ -56,5 +59,5 @@ def analyze(attempt, rows):
 
     return dict(
         has_time=has_time, total_active=fmt(total_ms), avg=fmt(total_ms / n if n else 0),
-        top5=top5, stuck=stuck, topics=topic_rows, seconds_limit=exam.seconds_per_question,
+        items=items, top5=top5, stuck=stuck, topics=topic_rows, seconds_limit=exam.seconds_per_question,
     )

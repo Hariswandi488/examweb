@@ -1,14 +1,17 @@
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask import (Flask, Response, abort, flash, redirect, render_template, request,
+                   url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from analytics import analyze, fmt
 from config import BASE_DIR, Config
+from exporter import build_data, to_json, to_md, to_txt
 from importer import import_exam
 from models import Answer, Attempt, Exam, Question, User, db
 
@@ -30,13 +33,29 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
+def ensure_columns():
+    """Migrasi ringan SQLite: tambah kolom baru kalau DB lama belum punya."""
+    with db.engine.begin() as conn:
+        cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(attempt)")}
+        if "q_index" not in cols:
+            conn.exec_driver_sql("ALTER TABLE attempt ADD COLUMN q_index INTEGER DEFAULT 1")
+        if "q_started_at" not in cols:
+            conn.exec_driver_sql("ALTER TABLE attempt ADD COLUMN q_started_at DATETIME")
+
+
 with app.app_context():
     db.create_all()
+    ensure_columns()
 
 
 # ---------- helper ----------
 def deadline_of(attempt):
-    return attempt.started_at + timedelta(minutes=attempt.exam.total_minutes)
+    exam = attempt.exam
+    if attempt.mode == "utbk":
+        # akhir timeline = awal soal aktif + sisa soal x jatah waktu per soal
+        left = max(0, len(exam.questions) - (attempt.q_index or 1) + 1)
+        return attempt.q_started_at + timedelta(seconds=left * exam.seconds_per_question)
+    return attempt.started_at + timedelta(minutes=exam.total_minutes)
 
 
 def own_attempt_or_404(aid):
@@ -193,7 +212,11 @@ def begin(eid):
     exam = db.session.get(Exam, eid)
     if not exam or not (exam.is_public or exam.owner_id == current_user.id):
         abort(404)
-    attempt = Attempt(exam_id=exam.id, user_id=current_user.id, mode="normal")
+    mode = request.form.get("mode", "normal")
+    if mode not in ("normal", "utbk"):
+        mode = "normal"
+    attempt = Attempt(exam_id=exam.id, user_id=current_user.id, mode=mode,
+                      q_index=1, q_started_at=datetime.utcnow())
     db.session.add(attempt)
     db.session.flush()
     for q in exam.questions:
@@ -202,12 +225,81 @@ def begin(eid):
     return redirect(url_for("attempt_page", aid=attempt.id, q=1))
 
 
+def sync_utbk(attempt, answers):
+    """Majukan soal otomatis kalau jatah waktunya habis (server = sumber kebenaran).
+    Return sisa detik soal aktif, atau None kalau semua soal sudah lewat."""
+    exam = attempt.exam
+    questions = exam.questions
+    n, S = len(questions), exam.seconds_per_question
+    now = datetime.utcnow()
+    elapsed = (now - attempt.q_started_at).total_seconds()
+    skipped = min(int(elapsed // S), n - attempt.q_index + 1)
+    if skipped > 0:
+        for k in range(attempt.q_index, attempt.q_index + skipped):
+            ans = answers[questions[k - 1].id]
+            ans.time_spent_ms = (ans.time_spent_ms or 0) + S * 1000
+            ans.visit_count = (ans.visit_count or 0) + 1
+        attempt.q_index += skipped
+        attempt.q_started_at += timedelta(seconds=skipped * S)
+        db.session.commit()
+    if attempt.q_index > n:
+        return None
+    return max(1, int(S - (now - attempt.q_started_at).total_seconds()))
+
+
+def utbk_page(attempt):
+    exam = attempt.exam
+    questions = exam.questions
+    n, S = len(questions), exam.seconds_per_question
+    answers = {a.question_id: a for a in attempt.answers}
+    aid = attempt.id
+
+    if request.method == "POST":
+        now = datetime.utcnow()
+        cur = attempt.q_index
+        posted = request.form.get("q", 0, type=int)
+        expiry = attempt.q_started_at + timedelta(seconds=S)
+        # hanya jawaban untuk soal aktif (dan belum lewat toleransi) yang diterima
+        if cur <= n and posted == cur and now <= expiry + timedelta(seconds=GRACE_SECONDS):
+            question = questions[cur - 1]
+            selected = [c for c in request.form.getlist("choice") if c in question.options]
+            if question.type == "single":
+                selected = selected[:1]
+            ans = answers[question.id]
+            ans.selected = sorted(set(selected))
+            spent = min((now - attempt.q_started_at).total_seconds(), S)  # waktu diukur server
+            ans.time_spent_ms = (ans.time_spent_ms or 0) + int(spent * 1000)
+            ans.visit_count = (ans.visit_count or 0) + 1
+            if cur >= n:
+                db.session.commit()
+                finish_attempt(attempt)
+                return redirect(url_for("result", aid=aid))
+            attempt.q_index = cur + 1
+            attempt.q_started_at = min(now, expiry)
+            db.session.commit()
+        return redirect(url_for("attempt_page", aid=aid))
+
+    remaining = sync_utbk(attempt, answers)
+    if remaining is None:
+        finish_attempt(attempt)
+        return redirect(url_for("result", aid=aid))
+    q = attempt.q_index
+    question = questions[q - 1]
+    return render_template(
+        "exam_utbk.html", exam=exam, question=question, q=q, total=n,
+        options=sorted(question.options.items()), selected=answers[question.id].selected or [],
+        remaining=remaining,
+    )
+
+
 @app.route("/attempt/<int:aid>", methods=["GET", "POST"])
 @login_required
 def attempt_page(aid):
     attempt = own_attempt_or_404(aid)
     if attempt.finished_at:
         return redirect(url_for("result", aid=aid))
+    if attempt.mode == "utbk":
+        return utbk_page(attempt)
 
     exam = attempt.exam
     questions = exam.questions
@@ -260,14 +352,18 @@ def attempt_page(aid):
     )
 
 
+def result_rows(attempt):
+    answers = {a.question_id: a for a in attempt.answers}
+    return [(answers[q.id], q) for q in attempt.exam.questions]
+
+
 @app.route("/result/<int:aid>")
 @login_required
 def result(aid):
     attempt = own_attempt_or_404(aid)
     if not attempt.finished_at:
         return redirect(url_for("attempt_page", aid=aid))
-    answers = {a.question_id: a for a in attempt.answers}
-    rows = [(answers[q.id], q) for q in attempt.exam.questions]
+    rows = result_rows(attempt)
     correct = sum(1 for a, _ in rows if a.is_correct)
     secs = int((attempt.finished_at - attempt.started_at).total_seconds())
     return render_template(
@@ -275,6 +371,25 @@ def result(aid):
         total=len(rows), duration=f"{secs // 60} menit {secs % 60} detik",
         analysis=analyze(attempt, rows),
     )
+
+
+@app.route("/result/<int:aid>/export")
+@login_required
+def export(aid):
+    attempt = own_attempt_or_404(aid)
+    if not attempt.finished_at:
+        return redirect(url_for("attempt_page", aid=aid))
+    kind = request.args.get("format", "txt")
+    if kind not in ("txt", "md", "json"):
+        abort(400)
+    rows = result_rows(attempt)
+    data = build_data(attempt, rows, analyze(attempt, rows))
+    body = {"txt": to_txt, "md": to_md, "json": to_json}[kind](data)
+    mime = {"txt": "text/plain", "md": "text/markdown", "json": "application/json"}[kind]
+    slug = re.sub(r"[^a-z0-9]+", "-", attempt.exam.title.lower()).strip("-")[:40] or "hasil"
+    resp = Response(body, mimetype=mime + "; charset=utf-8")
+    resp.headers["Content-Disposition"] = f'attachment; filename="hasil-{slug}-{attempt.id}.{kind}"'
+    return resp
 
 
 if __name__ == "__main__":

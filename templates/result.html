@@ -3,7 +3,17 @@
 <h2>Hasil: {{ attempt.exam.title }}</h2>
 <div class="card">
   Skor: <b>{{ '%.1f'|format(attempt.score) }}</b> ({{ correct }}/{{ total }} benar)<br>
-  Durasi sesi: {{ duration }}
+  Durasi sesi: {{ duration }}<br>
+  Mode: {% if attempt.mode == 'utbk' %}UTBK ({{ attempt.exam.seconds_per_question }} dtk per soal){% else %}Normal{% endif %}
+</div>
+
+<div class="card">
+  Export hasil:
+  <a href="{{ url_for('export', aid=attempt.id, format='txt') }}">TXT</a> |
+  <a href="{{ url_for('export', aid=attempt.id, format='md') }}">Markdown</a> |
+  <a href="{{ url_for('export', aid=attempt.id, format='json') }}">JSON</a><br>
+  <button type="button" id="copyai">Copy hasil buat AI</button> <span id="copyst"></span>
+  <br><small>Paste ke chat AI lu, dia otomatis dapat instruksi buat menganalisis dan bikin rencana belajar.</small>
 </div>
 
 <h3>Analisis Waktu</h3>
@@ -24,7 +34,7 @@
 </table></div>
 
 <h4>Soal stuck</h4>
-<p><small>Stuck = waktu lebih dari 2x rata-rata (minimal 20 dtk) atau melewati batas {{ analysis.seconds_limit }} dtk per soal.</small></p>
+<p><small>Stuck = waktu lebih dari 2x rata-rata (minimal 20 dtk), atau {% if attempt.mode == 'utbk' %}waktu soal sampai habis ({{ analysis.seconds_limit }} dtk){% else %}melewati batas {{ analysis.seconds_limit }} dtk per soal{% endif %}.</small></p>
 {% if analysis.stuck %}
 <ul>
   {% for i in analysis.stuck %}
@@ -64,4 +74,20 @@
 </div>
 {% endfor %}
 <a href="{{ url_for('index') }}">&laquo; Kembali</a>
+<script>
+  document.getElementById('copyai').addEventListener('click', function () {
+    var st = document.getElementById('copyst');
+    fetch("{{ url_for('export', aid=attempt.id, format='json') }}").then(function (r) { return r.text(); }).then(function (text) {
+      var ok = function () { st.textContent = ' \u2714 Tersalin! Paste ke AI.'; };
+      var fb = function () {
+        var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); var done = false;
+        try { done = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        st.textContent = done ? ' \u2714 Tersalin! Paste ke AI.' : ' Gagal menyalin, pakai link JSON di atas.';
+      };
+      if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(ok, fb); } else { fb(); }
+    });
+  });
+</script>
 {% endblock %}
